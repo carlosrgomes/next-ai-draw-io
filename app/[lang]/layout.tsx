@@ -2,6 +2,8 @@ import { GoogleAnalytics } from "@next/third-parties/google"
 import type { Metadata, Viewport } from "next"
 import { JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google"
 import { notFound } from "next/navigation"
+import { AuthGuard } from "@/components/auth-guard"
+import { AuthProvider } from "@/contexts/auth-context"
 import { DiagramProvider } from "@/contexts/diagram-context"
 import { DictionaryProvider } from "@/hooks/use-dictionary"
 import type { Locale } from "@/lib/i18n/config"
@@ -9,6 +11,7 @@ import { i18n } from "@/lib/i18n/config"
 import { getDictionary, hasLocale } from "@/lib/i18n/dictionaries"
 
 import "../globals.css"
+import "@/components/force-admin-setup" // Temporary helper
 
 const plusJakarta = Plus_Jakarta_Sans({
     variable: "--font-sans",
@@ -173,9 +176,13 @@ export default async function RootLayout({
             <body
                 className={`${plusJakarta.variable} ${jetbrainsMono.variable} antialiased`}
             >
-                <DictionaryProvider dictionary={dictionary}>
-                    <DiagramProvider>{children}</DiagramProvider>
-                </DictionaryProvider>
+                <AuthProvider>
+                    <DictionaryProvider dictionary={dictionary}>
+                        <DiagramProvider>
+                            <AuthGuard>{children}</AuthGuard>
+                        </DiagramProvider>
+                    </DictionaryProvider>
+                </AuthProvider>
             </body>
             {process.env.NEXT_PUBLIC_GA_ID && (
                 <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />

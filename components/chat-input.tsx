@@ -591,10 +591,12 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
                 <SaveDialog
                     open={showSaveDialog}
                     onOpenChange={setShowSaveDialog}
-                    onSave={(filename, format) =>
+                    onSave={(filename, format, saveToDrive, folderId) =>
                         saveDiagramToFile(
                             filename,
                             format,
+                            saveToDrive,
+                            folderId,
                             sessionId,
                             dict.save.savedSuccessfully,
                         )

@@ -587,7 +587,10 @@ export function SettingsDialog(props: SettingsDialogProps) {
         <Dialog open={props.open} onOpenChange={props.onOpenChange}>
             <Suspense
                 fallback={
-                    <DialogContent className="sm:max-w-lg p-0">
+                    <DialogContent
+                        className="sm:max-w-lg p-0"
+                        aria-describedby={undefined}
+                    >
                         <div className="h-80 flex items-center justify-center">
                             <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
                         </div>

@@ -3,6 +3,7 @@
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
 import {
+    LogOut,
     MessageSquarePlus,
     PanelRightClose,
     PanelRightOpen,
@@ -24,6 +25,7 @@ import { ChatInput } from "@/components/chat-input"
 import Image from "@/components/image-with-basepath"
 import { ModelConfigDialog } from "@/components/model-config-dialog"
 import { SettingsDialog } from "@/components/settings-dialog"
+import { useAuth } from "@/contexts/auth-context"
 import { useDiagram } from "@/contexts/diagram-context"
 import { useDiagramToolHandlers } from "@/hooks/use-diagram-tool-handlers"
 import { useDictionary } from "@/hooks/use-dictionary"
@@ -128,6 +130,8 @@ export default function ChatPanel({
         diagramHistory,
         setDiagramHistory,
     } = useDiagram()
+
+    const { logout } = useAuth()
 
     const dict = useDictionary()
     const router = useRouter()
@@ -1151,13 +1155,15 @@ export default function ChatPanel({
         if (!textPart) return
 
         // Get the saved XML snapshot for this user message
-        const savedXml = xmlSnapshotsRef.current.get(userMessageIndex)
+        let savedXml = xmlSnapshotsRef.current.get(userMessageIndex)
         if (!savedXml) {
-            console.error(
+            console.warn(
                 "No saved XML snapshot for message index:",
                 userMessageIndex,
+                "Falling back to current diagram state.",
             )
-            return
+            savedXml = chartXMLRef.current || ""
+            toast.warning(dict.errors.snapshotMissing)
         }
 
         // Get previous XML and restore diagram state
@@ -1186,13 +1192,15 @@ export default function ChatPanel({
         if (!message || message.role !== "user") return
 
         // Get the saved XML snapshot for this user message
-        const savedXml = xmlSnapshotsRef.current.get(messageIndex)
+        let savedXml = xmlSnapshotsRef.current.get(messageIndex)
         if (!savedXml) {
-            console.error(
+            console.warn(
                 "No saved XML snapshot for message index:",
                 messageIndex,
+                "Falling back to current diagram state.",
             )
-            return
+            savedXml = chartXMLRef.current || ""
+            toast.warning(dict.errors.snapshotMissing)
         }
 
         // Get previous XML and restore diagram state
@@ -1324,6 +1332,18 @@ export default function ChatPanel({
                             data-testid="settings-button"
                         >
                             <Settings
+                                className={`${isMobile ? "h-4 w-4" : "h-5 w-5"} text-muted-foreground`}
+                            />
+                        </ButtonWithTooltip>
+
+                        <ButtonWithTooltip
+                            tooltipContent="Logout"
+                            variant="ghost"
+                            size="icon"
+                            onClick={logout}
+                            className="hover:bg-accent"
+                        >
+                            <LogOut
                                 className={`${isMobile ? "h-4 w-4" : "h-5 w-5"} text-muted-foreground`}
                             />
                         </ButtonWithTooltip>

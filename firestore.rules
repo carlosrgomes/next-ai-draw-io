@@ -1,0 +1,50 @@
+rules_version = '2';
+
+service cloud.firestore {
+  // O match abaixo funciona para qualquer database, incluindo o 'drawio'
+  match /databases/{database}/documents {
+
+
+    function isAdmin() {
+      // Check if user doc exists before accessing data
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Regra específica para o App Next AI Draw.io
+    // Caminho: drawio/{userId}/sessions/{sessionId}
+    match /drawio/{userId}/sessions/{sessionId} {
+      // Permite leitura/escrita se o usuário estiver logado E for o dono dos dados (userId da URL == auth.uid)
+      // E TAMBÉM verifica se o documento sendo salvo tem o campo userId igual ao auth.uid (segurança extra)
+      allow read, delete: if isSignedIn() && request.auth.uid == userId;
+      allow create, write: if isSignedIn() && request.auth.uid == userId 
+                           && (request.resource.data.userId == request.auth.uid);
+    }
+
+    // AI Model Configuration (Global)
+    // Read: Authenticated users
+    // Write: Admins only
+    match /ai_configurations/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isAdmin();
+    }
+    
+    // User Roles
+    // Read: Authenticated users
+    // Write: Users can update their own profile (e.g. login timestamp), but Role should ideally be protected.
+    // For this MVP, we allow users to write their own doc. 
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Bloqueia todo o resto (segurança padrão)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

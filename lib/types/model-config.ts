@@ -358,7 +358,10 @@ export function flattenModels(config: MultiModelConfig): FlattenedModel[] {
                 // Vertex AI fields
                 vertexApiKey: provider.vertexApiKey,
 
-                validated: model.validated,
+                validated:
+                    model.validated !== undefined
+                        ? model.validated
+                        : provider.validated,
                 source: "user",
                 isDefault: false,
             })

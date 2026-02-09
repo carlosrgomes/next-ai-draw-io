@@ -1,6 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useAuth } from "@/contexts/auth-context"
+import { auth } from "@/lib/firebase"
+import {
+    deleteSessionFromFirestore,
+    getSessionFromFirestore,
+    getSessionsMetadataFromFirestore,
+    saveSessionToFirestore,
+} from "@/lib/firestore-service"
 import {
     type ChatSession,
     createEmptySession,
@@ -63,22 +71,35 @@ export function useSessionManager(
     const [isLoading, setIsLoading] = useState(true)
     const [isAvailable, setIsAvailable] = useState(false)
 
+    const { user } = useAuth()
     const isInitializedRef = useRef(false)
     // Sequence guard for URL changes - prevents out-of-order async resolution
     const urlChangeSequenceRef = useRef(0)
 
     // Load sessions list
     const refreshSessions = useCallback(async () => {
-        if (!isIndexedDBAvailable()) return
         try {
-            const metadata = await getAllSessionMetadata()
-            setSessions(metadata)
-        } catch (error) {
+            if (user && auth.currentUser) {
+                const metadata = await getSessionsMetadataFromFirestore(
+                    user.uid,
+                )
+                setSessions(metadata)
+            } else if (isIndexedDBAvailable()) {
+                const metadata = await getAllSessionMetadata()
+                setSessions(metadata)
+            }
+        } catch (error: any) {
+            if (error?.code === "permission-denied") return
             console.error("Failed to refresh sessions:", error)
         }
-    }, [])
+    }, [user])
 
-    // Initialize on mount
+    // Initialize on mount or user change
+    useEffect(() => {
+        // Reset init ref when user changes to re-fetch sessions
+        isInitializedRef.current = false
+    }, [user])
+
     useEffect(() => {
         if (isInitializedRef.current) return
         isInitializedRef.current = true
@@ -86,7 +107,7 @@ export function useSessionManager(
         async function init() {
             setIsLoading(true)
 
-            if (!isIndexedDBAvailable()) {
+            if (!user && !isIndexedDBAvailable()) {
                 setIsAvailable(false)
                 setIsLoading(false)
                 return
@@ -95,16 +116,45 @@ export function useSessionManager(
             setIsAvailable(true)
 
             try {
-                // Run migration first (one-time conversion from localStorage)
-                await migrateFromLocalStorage()
+                // Run migration first (one-time conversion from localStorage) - only for IndexedDB for now
+                if (!user) {
+                    await migrateFromLocalStorage()
+                }
 
                 // Load sessions list
-                const metadata = await getAllSessionMetadata()
-                setSessions(metadata)
+                if (user && auth.currentUser) {
+                    try {
+                        const metadata = await getSessionsMetadataFromFirestore(
+                            user.uid,
+                        )
+                        setSessions(metadata)
+                    } catch (e: any) {
+                        if (e?.code !== "permission-denied") throw e
+                    }
+                } else {
+                    const metadata = await getAllSessionMetadata()
+                    setSessions(metadata)
+                }
 
                 // Only load a session if initialSessionId is provided (from URL param)
                 if (initialSessionId) {
-                    const session = await getSession(initialSessionId)
+                    let session: ChatSession | null = null
+                    if (user && auth.currentUser) {
+                        // Cast the result to ChatSession | null to match the type
+                        try {
+                            const fsSession = await getSessionFromFirestore(
+                                user.uid,
+                                initialSessionId,
+                            )
+                            // Ensure compatibility or cast if types match
+                            session = fsSession as ChatSession | null
+                        } catch (e: any) {
+                            if (e?.code !== "permission-denied") throw e
+                        }
+                    } else {
+                        session = await getSession(initialSessionId)
+                    }
+
                     if (session) {
                         setCurrentSession(session)
                         setCurrentSessionId(session.id)
@@ -120,7 +170,7 @@ export function useSessionManager(
         }
 
         init()
-    }, [initialSessionId])
+    }, [initialSessionId, user])
 
     // Handle URL session ID changes after initialization
     // Note: intentionally NOT including currentSessionId in deps to avoid race conditions
@@ -136,7 +186,20 @@ export function useSessionManager(
         async function handleSessionIdChange() {
             if (initialSessionId) {
                 // URL has session ID - load it
-                const session = await getSession(initialSessionId)
+                let session: ChatSession | null = null
+
+                if (user && auth.currentUser) {
+                    try {
+                        session = (await getSessionFromFirestore(
+                            user.uid,
+                            initialSessionId,
+                        )) as ChatSession | null
+                    } catch (e: any) {
+                        if (e?.code !== "permission-denied") throw e
+                    }
+                } else {
+                    session = await getSession(initialSessionId)
+                }
 
                 // Check if this request is still the latest (sequence guard)
                 // If not, a newer URL change happened while we were loading
@@ -161,7 +224,7 @@ export function useSessionManager(
         }
 
         handleSessionIdChange()
-    }, [initialSessionId, isAvailable])
+    }, [initialSessionId, isAvailable, user])
 
     // Refresh sessions on window focus (multi-tab sync)
     useEffect(() => {
@@ -179,11 +242,33 @@ export function useSessionManager(
 
             // Save current session first if it has messages
             if (currentSession && currentSession.messages.length > 0) {
-                await saveSession(currentSession)
+                if (user && auth.currentUser) {
+                    try {
+                        await saveSessionToFirestore(user.uid, currentSession)
+                    } catch (e: any) {
+                        // Ignore permission errors during switch if auth is unstable
+                        if (e?.code !== "permission-denied") throw e
+                    }
+                } else {
+                    await saveSession(currentSession)
+                }
             }
 
             // Load the target session
-            const session = await getSession(id)
+            let session: ChatSession | null = null
+            if (user && auth.currentUser) {
+                try {
+                    session = (await getSessionFromFirestore(
+                        user.uid,
+                        id,
+                    )) as ChatSession | null
+                } catch (e: any) {
+                    if (e?.code !== "permission-denied") throw e
+                }
+            } else {
+                session = await getSession(id)
+            }
+
             if (!session) {
                 console.error("Session not found:", id)
                 return null
@@ -201,14 +286,23 @@ export function useSessionManager(
                 diagramHistory: session.diagramHistory,
             }
         },
-        [currentSessionId, currentSession],
+        [currentSessionId, currentSession, user],
     )
 
     // Delete a session
     const deleteSession = useCallback(
         async (id: string): Promise<{ wasCurrentSession: boolean }> => {
             const wasCurrentSession = id === currentSessionId
-            await deleteSessionFromDB(id)
+
+            if (user && auth.currentUser) {
+                try {
+                    await deleteSessionFromFirestore(user.uid, id)
+                } catch (e: any) {
+                    if (e?.code !== "permission-denied") throw e
+                }
+            } else {
+                await deleteSessionFromDB(id)
+            }
 
             // If deleting current session, clear state (caller will show new empty session)
             if (wasCurrentSession) {
@@ -220,7 +314,7 @@ export function useSessionManager(
 
             return { wasCurrentSession }
         },
-        [currentSessionId, refreshSessions],
+        [currentSessionId, refreshSessions, user],
     )
 
     // Save current session data (debounced externally by caller)
@@ -250,8 +344,19 @@ export function useSessionManager(
                     diagramHistory: data.diagramHistory,
                     title: extractTitle(data.messages),
                 }
-                await saveSession(newSession)
-                await enforceSessionLimit()
+
+                if (user && auth.currentUser) {
+                    try {
+                        await saveSessionToFirestore(user.uid, newSession)
+                    } catch (e: any) {
+                        if (e?.code !== "permission-denied") throw e
+                    }
+                    // Enforce limit for FS? Maybe later.
+                } else {
+                    await saveSession(newSession)
+                    await enforceSessionLimit()
+                }
+
                 setCurrentSession(newSession)
                 setCurrentSessionId(newSession.id)
                 await refreshSessions()
@@ -277,7 +382,16 @@ export function useSessionManager(
                         : currentSession.title,
             }
 
-            await saveSession(updatedSession)
+            if (user && auth.currentUser) {
+                try {
+                    await saveSessionToFirestore(user.uid, updatedSession)
+                } catch (e: any) {
+                    if (e?.code !== "permission-denied") throw e
+                }
+            } else {
+                await saveSession(updatedSession)
+            }
+
             setCurrentSession(updatedSession)
 
             // Update sessions list metadata
@@ -298,7 +412,7 @@ export function useSessionManager(
                 ),
             )
         },
-        [currentSession, currentSessionId, refreshSessions],
+        [currentSession, currentSessionId, refreshSessions, user],
     )
 
     // Clear current session state (for starting fresh without loading another session)

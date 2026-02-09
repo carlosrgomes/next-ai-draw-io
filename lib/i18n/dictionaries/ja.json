@@ -170,7 +170,8 @@
         "failedToExport": "チャートデータの取得エラー",
         "failedToLoadExample": "例の画像の読み込みエラー",
         "failedToRecordFeedback": "フィードバックの記録に失敗しました。もう一度お試しください。",
-        "storageUpdateFailed": "チャットはクリアされましたが、ブラウザストレージを更新できませんでした"
+        "storageUpdateFailed": "チャットはクリアされましたが、ブラウザストレージを更新できませんでした",
+        "snapshotMissing": "過去のダイアグラムの状態が利用できません。編集には現在の状態が使用されます。"
     },
     "quota": {
         "dailyLimit": "1日の割当量に達しました",

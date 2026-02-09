@@ -170,7 +170,8 @@
         "failedToExport": "获取图表数据时出错",
         "failedToLoadExample": "加载示例图片时出错",
         "failedToRecordFeedback": "记录您的反馈失败。请重试。",
-        "storageUpdateFailed": "聊天已清除，但无法更新浏览器存储"
+        "storageUpdateFailed": "聊天已清除，但无法更新浏览器存储",
+        "snapshotMissing": "历史图表状态不可用。编辑将使用当前图表状态。"
     },
     "quota": {
         "dailyLimit": "已达每日配额",

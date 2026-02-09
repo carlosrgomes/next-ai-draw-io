@@ -5,7 +5,9 @@ import { createContext, useContext, useEffect, useRef, useState } from "react"
 import type { DrawIoEmbedRef } from "react-drawio"
 import { toast } from "sonner"
 import type { ExportFormat } from "@/components/save-dialog"
+import { useAuth } from "@/contexts/auth-context"
 import { getApiEndpoint } from "@/lib/base-path"
+import { uploadFileToDrive } from "@/lib/google-drive"
 import {
     extractDiagramXML,
     isRealDiagram,
@@ -27,6 +29,8 @@ interface DiagramContextType {
     saveDiagramToFile: (
         filename: string,
         format: ExportFormat,
+        saveToDrive?: boolean,
+        folderId?: string,
         sessionId?: string,
         successMessage?: string,
     ) => void
@@ -42,6 +46,7 @@ interface DiagramContextType {
 const DiagramContext = createContext<DiagramContextType | undefined>(undefined)
 
 export function DiagramProvider({ children }: { children: React.ReactNode }) {
+    const { googleAccessToken } = useAuth()
     const [chartXML, setChartXML] = useState<string>("")
     const [latestSvg, setLatestSvg] = useState<string>("")
     const [diagramHistory, setDiagramHistory] = useState<
@@ -278,6 +283,8 @@ export function DiagramProvider({ children }: { children: React.ReactNode }) {
     const saveDiagramToFile = (
         filename: string,
         format: ExportFormat,
+        saveToDrive?: boolean,
+        folderId?: string,
         sessionId?: string,
         successMessage?: string,
     ) => {
@@ -291,7 +298,7 @@ export function DiagramProvider({ children }: { children: React.ReactNode }) {
 
         // Set up the resolver before triggering export
         saveResolverRef.current = {
-            resolver: (exportData: string) => {
+            resolver: async (exportData: string) => {
                 let fileContent: string | Blob
                 let mimeType: string
                 let extension: string
@@ -318,10 +325,44 @@ export function DiagramProvider({ children }: { children: React.ReactNode }) {
                     extension = ".svg"
                 }
 
+                if (saveToDrive && googleAccessToken) {
+                    try {
+                        let blob: Blob
+                        if (
+                            typeof fileContent === "string" &&
+                            fileContent.startsWith("data:")
+                        ) {
+                            const response = await fetch(fileContent)
+                            blob = await response.blob()
+                        } else {
+                            blob = new Blob([fileContent], { type: mimeType })
+                        }
+
+                        await uploadFileToDrive(
+                            googleAccessToken,
+                            blob,
+                            filename + extension,
+                            mimeType,
+                            folderId,
+                        )
+                        toast.success("Saved to Google Drive!", {
+                            position: "bottom-left",
+                            duration: 2500,
+                        })
+                    } catch (error) {
+                        console.error("Failed to save to Drive:", error)
+                        toast.error("Failed to save to Google Drive")
+                    }
+                } else if (saveToDrive && !googleAccessToken) {
+                    toast.error(
+                        "Google Drive access token missing. Please sign in with Google again.",
+                    )
+                }
+
                 // Log save event to Langfuse (flags the trace)
                 logSaveToLangfuse(filename, format, sessionId)
 
-                // Handle download
+                // Handle download (ALWAYS do local download for now as backup/default)
                 let url: string
                 if (
                     typeof fileContent === "string" &&
@@ -342,7 +383,8 @@ export function DiagramProvider({ children }: { children: React.ReactNode }) {
                 document.body.removeChild(a)
 
                 // Show success toast after download is initiated
-                if (successMessage) {
+                if (successMessage && !saveToDrive) {
+                    // Only show local success if not saving to drive (Drive has its own toast)
                     toast.success(successMessage, {
                         position: "bottom-left",
                         duration: 2500,
